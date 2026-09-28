@@ -1,0 +1,29 @@
+{
+  "safety": {
+    "accuracy": 0.91,
+    "precision_weighted": 0.910550128051339,
+    "recall_weighted": 0.91,
+    "f1_weighted": 0.9097116144849446,
+    "f1_macro": 0.9020213597329496,
+    "roc_auc_ovr": 0.9918286455182497,
+    "cv_mean": 0.9205973574101763,
+    "cv_std": 0.019305517650514185
+  },
+  "safety_scorer": {
+    "r2": 0.9924291012499062,
+    "mae": 1.036236485003327,
+    "rmse": 1.4863992768912557
+  },
+  "time": {
+    "r2": 0.4173072452352522,
+    "mae": 18.828704828294548,
+    "rmse": 23.84077179452567
+  },
+  "training_source": {
+    "rides_source": "backend/data/rides (50,000 real rides)",
+    "police_stations": "24 real Coimbatore stations",
+    "hospitals": "13 real Coimbatore hospitals",
+    "delivery_records_trained": 10000,
+    "safety_records_trained": 2500
+  }
+}

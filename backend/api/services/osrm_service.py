@@ -74,7 +74,7 @@ class OSRMService:
                 'alternatives': 'true' if alternatives else 'false'
             }
             
-            async with httpx.AsyncClient(timeout=3.0) as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(url, params=params)
             
             if response.status_code == 200:

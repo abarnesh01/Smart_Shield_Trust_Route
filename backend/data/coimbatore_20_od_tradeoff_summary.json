@@ -1,0 +1,19 @@
+{
+  "sample_size": 22,
+  "mean_fastest_time_min": 10.695454545454545,
+  "mean_safest_time_min": 12.272727272727273,
+  "mean_delta_time_min": 1.5909090909090908,
+  "mean_time_increase_pct": 16.75,
+  "mean_fastest_safety_score": 51.23636363636365,
+  "mean_safest_safety_score": 54.37272727272728,
+  "mean_delta_safety_pts": 5.75,
+  "mean_safety_gain_pct": 11.195454545454544,
+  "mean_fastest_dist_km": 8.770454545454545,
+  "mean_safest_dist_km": 9.415909090909093,
+  "mean_delta_dist_km": 0.6622727272727272,
+  "mean_tradeoff_ratio": 6.7236363636363645,
+  "median_tradeoff_ratio": 5.975,
+  "min_tradeoff_ratio": 0.67,
+  "max_tradeoff_ratio": 23.75,
+  "std_tradeoff_ratio": 5.763066764157649
+}

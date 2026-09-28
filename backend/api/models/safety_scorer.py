@@ -230,16 +230,15 @@ class SafetyScorer:
         is_rush_hour = (7 <= hour <= 9) or (17 <= hour <= 19)
         traffic_density = 80.0 if is_rush_hour else 40.0
         
-        # Try real traffic data if service is available
+        # Try real traffic data if service is available and synchronous
         try:
             from api.services.traffic import TrafficService
             traffic_service = TrafficService()
-            # Note: This is a synchronous call - in high performance this should be async
-            # or pre-fetched in the optimizer
-            t_level, _, _ = traffic_service.get_traffic_level(coord, coord)
-            if t_level == 'high': traffic_density = 90.0
-            elif t_level == 'medium': traffic_density = 60.0
-            elif t_level == 'low': traffic_density = 30.0
+            if hasattr(traffic_service, 'get_traffic_level') and not asyncio.iscoroutinefunction(traffic_service.get_traffic_level):
+                t_level, _, _ = traffic_service.get_traffic_level(coord, coord)
+                if t_level == 'high': traffic_density = 90.0
+                elif t_level == 'medium': traffic_density = 60.0
+                elif t_level == 'low': traffic_density = 30.0
         except Exception:
             pass # Use heuristic fallback
         
