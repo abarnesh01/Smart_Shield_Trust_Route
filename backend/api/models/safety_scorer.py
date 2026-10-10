@@ -26,22 +26,25 @@ class SafetyScorer:
         self.weights = settings.SAFETY_WEIGHTS
         self.police_stations = self._load_police_stations()
         self.hospitals = self._load_hospitals()
+        self.other_safe_zones = []
+        self._db_safe_zones_merged = False
         
-        # Merge with DB safe zones
+        self._initialize_model()
+
+    def ensure_db_safe_zones_merged(self):
+        """Lazy-load and merge DB safe zones when database is ready."""
+        if self._db_safe_zones_merged:
+            return
+            
         db_safe_zones = self._load_db_safe_zones()
         if db_safe_zones:
-            # Add police stations from DB to the list
             db_police = [z for z in db_safe_zones if z['type'] == 'police_station']
-            # Avoid duplicates by name
             existing_names = set(s['name'] for s in self.police_stations)
             for p in db_police:
                 if p['name'] not in existing_names:
                     self.police_stations.append(p)
-            
-            # Add other safe zones (24hr shops, etc) to a general list for scoring
             self.other_safe_zones = [z for z in db_safe_zones if z['type'] != 'police_station']
-            
-        self._initialize_model()
+            self._db_safe_zones_merged = True
 
     def _load_police_stations(self) -> List[Dict]:
         """Load police stations from JSON file."""
@@ -57,30 +60,37 @@ class SafetyScorer:
         return []
 
     def _load_db_safe_zones(self) -> List[Dict]:
-        """Load safe zones from the database."""
+        """Load safe zones from the database safely."""
         try:
-            from database.database import SessionLocal
+            from database.database import SessionLocal, engine
             from database.models import SafeZone
+            from sqlalchemy import inspect
+            
+            inspector = inspect(engine)
+            if not inspector.has_table("safe_zones"):
+                return []
             
             db = SessionLocal()
-            zones = db.query(SafeZone).all()
-            db_zones = []
-            for zone in zones:
-                loc = zone.location
-                db_zones.append({
-                    "name": zone.name,
-                    "latitude": loc.get('latitude', loc.get('lat')),
-                    "longitude": loc.get('longitude', loc.get('lng')),
-                    "type": zone.zone_type,
-                    "safety_score": zone.safety_score
-                })
-            db.close()
-            if db_zones:
-                logger.info(f"Loaded {len(db_zones)} safe zones from database")
-            return db_zones
+            try:
+                zones = db.query(SafeZone).all()
+                db_zones = []
+                for zone in zones:
+                    loc = zone.location or {}
+                    db_zones.append({
+                        "name": zone.name,
+                        "latitude": loc.get('latitude', loc.get('lat')),
+                        "longitude": loc.get('longitude', loc.get('lng')),
+                        "type": zone.zone_type,
+                        "safety_score": zone.safety_score
+                    })
+                if db_zones:
+                    logger.info(f"Loaded {len(db_zones)} safe zones from database")
+                return db_zones
+            finally:
+                db.close()
         except Exception as e:
-            logger.warning(f"Could not load safe zones from DB: {e}")
-        return []
+            logger.debug(f"Could not load safe zones from DB: {e}")
+            return []
 
     def _load_hospitals(self) -> List[Dict]:
         """Load hospitals from JSON file."""
@@ -310,6 +320,7 @@ class SafetyScorer:
 
     def _calculate_police_proximity(self, coord: Coordinate) -> float:
         """Calculate proximity score to nearest police station or safe zone (0-100)."""
+        self.ensure_db_safe_zones_merged()
         all_safe_points = list(self.police_stations)
         if hasattr(self, 'other_safe_zones'):
             all_safe_points.extend(self.other_safe_zones)

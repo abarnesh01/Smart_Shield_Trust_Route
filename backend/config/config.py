@@ -4,6 +4,9 @@ from pathlib import Path
 from pydantic_settings import BaseSettings
 from typing import List
 
+BASE_DIR = Path(__file__).resolve().parent.parent
+DEFAULT_DB_PATH = BASE_DIR / "smartshield.db"
+
 class Settings(BaseSettings):
     """Application settings."""
     
@@ -15,7 +18,7 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL",
-        "sqlite:///./smartshield.db"  # Default to SQLite for easy setup
+        f"sqlite:///{DEFAULT_DB_PATH}"  # Default to absolute SQLite path for backend
     )
     
     # API Keys

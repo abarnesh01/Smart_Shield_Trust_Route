@@ -12,8 +12,20 @@ sys.path.append(str(Path(__file__).parent.parent))
 from config.config import settings
 from loguru import logger
 
+BASE_DIR = Path(__file__).resolve().parent.parent
+
 # Database URL
 SQLALCHEMY_DATABASE_URL = settings.DATABASE_URL
+
+# Normalize relative SQLite paths to backend directory
+if SQLALCHEMY_DATABASE_URL.startswith("sqlite:///./"):
+    db_filename = SQLALCHEMY_DATABASE_URL.replace("sqlite:///./", "", 1)
+    SQLALCHEMY_DATABASE_URL = f"sqlite:///{BASE_DIR / db_filename}"
+elif SQLALCHEMY_DATABASE_URL.startswith("sqlite:///") and not SQLALCHEMY_DATABASE_URL.startswith("sqlite:////") and SQLALCHEMY_DATABASE_URL != "sqlite://":
+    # Handles relative path like sqlite:///smartshield.db
+    db_filename = SQLALCHEMY_DATABASE_URL.replace("sqlite:///", "", 1)
+    if not Path(db_filename).is_absolute():
+        SQLALCHEMY_DATABASE_URL = f"sqlite:///{BASE_DIR / db_filename}"
 
 # Handle Render's 'postgres://' format which SQLAlchemy needs as 'postgresql://'
 if SQLALCHEMY_DATABASE_URL.startswith("postgres://"):
@@ -42,6 +54,60 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
+def seed_safe_zones(db: Session):
+    """Seed safe zones from verified JSON datasets if table is empty."""
+    from database.models import SafeZone
+    import json
+    
+    try:
+        count = db.query(SafeZone).count()
+        if count > 0:
+            return
+        
+        police_file = BASE_DIR / "data" / "police_stations.json"
+        hospitals_file = BASE_DIR / "data" / "hospitals.json"
+        
+        seeded = 0
+        if police_file.exists():
+            with open(police_file, "r", encoding="utf-8") as f:
+                police_list = json.load(f)
+                for item in police_list:
+                    sz = SafeZone(
+                        zone_type="police_station",
+                        name=item.get("name"),
+                        location={"latitude": item.get("latitude"), "longitude": item.get("longitude")},
+                        address=item.get("address"),
+                        phone=item.get("phone"),
+                        is_24hr=True,
+                        safety_score=95.0
+                    )
+                    db.add(sz)
+                    seeded += 1
+                    
+        if hospitals_file.exists():
+            with open(hospitals_file, "r", encoding="utf-8") as f:
+                hospitals_list = json.load(f)
+                for item in hospitals_list:
+                    sz = SafeZone(
+                        zone_type="hospital",
+                        name=item.get("name"),
+                        location={"latitude": item.get("latitude"), "longitude": item.get("longitude")},
+                        address=item.get("address"),
+                        phone=item.get("phone"),
+                        is_24hr=True,
+                        safety_score=90.0
+                    )
+                    db.add(sz)
+                    seeded += 1
+                    
+        if seeded > 0:
+            db.commit()
+            logger.info(f"Seeded {seeded} verified safe zones from datasets into database")
+    except Exception as e:
+        logger.error(f"Error seeding safe zones: {e}")
+        db.rollback()
+
+
 async def init_db():
     """Initialize database tables."""
     try:
@@ -49,6 +115,13 @@ async def init_db():
         from database.models import Route, SafetyFeedback, SafetyScore, DeliveryCompany, Rider, DeliveryStatus, RouteMonitoring, PanicAlert, RiderCheckIn, SafeZone, RideAlong, User, DeliveryRoute, RouteSegment, DeliveryFeedback, HistoricalDelivery, CrowdsourcedAlert, RiderProfile, DriverProfile, UserSession, Delivery, DeliveryBatch, DeliveryProof, Customer, BuddyPair
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables created/verified successfully")
+        
+        # Seed safe zones if empty
+        db = SessionLocal()
+        try:
+            seed_safe_zones(db)
+        finally:
+            db.close()
     except Exception as e:
         logger.error(f"Error initializing database: {e}")
         # In development, we can work without database

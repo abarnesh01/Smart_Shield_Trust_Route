@@ -29,4 +29,12 @@ scipy
 matplotlib
 seaborn
 folium
-h3-py
+slowapi==0.1.9
+sentry-sdk==2.22.0
+httpx==0.28.1
+googlemaps==4.10.0
+twilio==9.4.5
+psutil==7.0.0
+GeoAlchemy2==0.17.1
+pytest-asyncio==0.25.3
+

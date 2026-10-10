@@ -1,20 +1,9 @@
 import pytest
-from database.models import CrimeData
 
 # Test fixtures (client, db_session) are provided by conftest.py
 
 def test_get_safety_heatmap(client, db_session):
-    # Add some mock crime data for heatmap
-    mock_crime = CrimeData(
-        district="Chennai",
-        murder_count=10,
-        sexual_harassment_count=50,
-        road_accident_count=100,
-        crime_risk_score=65.5,
-        location={"latitude": 13.0827, "longitude": 80.2707}
-    )
-    db_session.add(mock_crime)
-    db_session.commit()
+    # Heatmap should work even without auth (public safety info)
 
     # Heatmap should work even without auth (public safety info)
     response = client.get(

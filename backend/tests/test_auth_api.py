@@ -9,7 +9,7 @@ from database.database import Base, get_db
 from database.models import (
     User, Route, SafetyFeedback, SafetyScore, DeliveryCompany, Rider, 
     DeliveryStatus, RouteMonitoring, PanicAlert, RiderCheckIn, SafeZone, 
-    RideAlong, DeliveryRoute, RouteSegment, CrimeData, DeliveryFeedback, 
+    RideAlong, DeliveryRoute, RouteSegment, DeliveryFeedback, 
     HistoricalDelivery, CrowdsourcedAlert, RiderProfile, DriverProfile, 
     UserSession, Delivery, DeliveryBatch, DeliveryProof, Customer, BuddyPair
 )
