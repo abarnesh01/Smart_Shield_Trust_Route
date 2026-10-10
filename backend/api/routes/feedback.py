@@ -5,7 +5,8 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from database.database import get_db
-from database.models import DeliveryFeedback, DeliveryRoute, CrowdsourcedAlert
+from database.models import DeliveryFeedback, DeliveryRoute, CrowdsourcedAlert, User
+from api.deps import get_current_dispatcher
 from loguru import logger
 
 router = APIRouter()
@@ -110,8 +111,11 @@ async def get_alerts(service_type: Optional[str] = None, db: Session = Depends(g
         logger.error(f"Error fetching alerts: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 @router.get("/feedback/all")
-async def list_all_feedback(db: Session = Depends(get_db)):
-    """List all delivery feedback for admin dashboard."""
+async def list_all_feedback(
+    current_user: User = Depends(get_current_dispatcher),
+    db: Session = Depends(get_db)
+):
+    """List all delivery feedback for admin dashboard - Dispatcher/Admin only."""
     try:
         feedback_list = db.query(DeliveryFeedback).order_by(DeliveryFeedback.submitted_at.desc()).all()
         return {

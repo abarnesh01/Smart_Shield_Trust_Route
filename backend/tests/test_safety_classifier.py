@@ -20,7 +20,7 @@ def sample_safety_data():
         'traffic_density': np.random.uniform(0, 1, n_samples),
         'police_proximity': np.random.uniform(0.5, 5, n_samples),
         'hospital_proximity': np.random.uniform(0.5, 10, n_samples),
-        'timestamp': pd.date_range('2024-01-01', periods=n_samples, freq='H'),
+        'timestamp': pd.date_range('2024-01-01', periods=n_samples, freq='h'),
         'population_density': np.random.uniform(100, 10000, n_samples),
         'commercial_area': np.random.randint(0, 2, n_samples),
         'residential_area': np.random.randint(0, 2, n_samples),

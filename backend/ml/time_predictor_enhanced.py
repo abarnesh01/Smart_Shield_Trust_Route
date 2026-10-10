@@ -163,15 +163,12 @@ class EnhancedTimePredictor:
                        df[feature] = 0
 
         # Encode categorical columns if any remain
-        if 'weather_condition' in df.columns and df['weather_condition'].dtype == 'object':
-             # Simple label encoding
-             df['weather_condition'] = df['weather_condition'].astype('category').cat.codes
+        for col in self.feature_names:
+            if col in df.columns and not pd.api.types.is_numeric_dtype(df[col]):
+                df[col] = df[col].astype('category').cat.codes.astype(float)
 
-        if 'vehicle_type' in df.columns and df['vehicle_type'].dtype == 'object':
-             df['vehicle_type'] = df['vehicle_type'].astype('category').cat.codes
-
-        # Filter features
-        X = df[self.feature_names].values
+        # Filter features and convert to numeric float array
+        X = df[self.feature_names].to_numpy(dtype=np.float64)
         X = np.nan_to_num(X, nan=0.0)
         
         if target_column in df.columns:

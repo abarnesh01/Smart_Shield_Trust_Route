@@ -18,7 +18,7 @@ def sample_time_data():
         'traffic_level': np.random.uniform(0, 1, n_samples),
         'time_of_day': np.random.randint(0, 24, n_samples),
         'day_of_week': np.random.randint(0, 7, n_samples),
-        'timestamp': pd.date_range('2024-01-01', periods=n_samples, freq='H'),
+        'timestamp': pd.date_range('2024-01-01', periods=n_samples, freq='h'),
         'weather_condition': np.random.choice(['clear', 'rain', 'snow'], n_samples),
         'temperature': np.random.uniform(-10, 40, n_samples),
         'precipitation': np.random.uniform(0, 50, n_samples),

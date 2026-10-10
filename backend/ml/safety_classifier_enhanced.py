@@ -166,8 +166,10 @@ class EnhancedSafetyClassifier:
         for feature in self.feature_names:
             if feature not in df.columns:
                 df[feature] = 0.0 # Default fallback
+            elif not pd.api.types.is_numeric_dtype(df[feature]):
+                df[feature] = df[feature].astype('category').cat.codes.astype(float)
         
-        X = df[self.feature_names].values
+        X = df[self.feature_names].to_numpy(dtype=np.float64)
         
         # Handle missing values
         X = np.nan_to_num(X, nan=0.0, posinf=1.0, neginf=0.0)
@@ -331,7 +333,16 @@ class EnhancedSafetyClassifier:
         
         X_scaled = self.scaler.transform(X)
         predictions = self.model.predict(X_scaled)
-        probabilities = self.model.predict_proba(X_scaled)
+        raw_probs = self.model.predict_proba(X_scaled)
+        
+        num_classes = len(self.safety_classes)
+        probabilities = np.zeros((len(X), num_classes), dtype=float)
+        if hasattr(self.model, "classes_"):
+            for idx, cls_label in enumerate(self.model.classes_):
+                if 0 <= cls_label < num_classes:
+                    probabilities[:, cls_label] = raw_probs[:, idx]
+        else:
+            probabilities = raw_probs
         
         return predictions, probabilities
     
@@ -340,11 +351,8 @@ class EnhancedSafetyClassifier:
         Convert class predictions to 0-100 safety score
         """
         predictions, probabilities = self.predict(X)
-        
-        # Weighted score based on class probabilities
         class_values = np.array([0, 25, 50, 75, 100])
         safety_scores = np.sum(probabilities * class_values, axis=1)
-        
         return safety_scores
     
     def save_model(self, version: str = None):

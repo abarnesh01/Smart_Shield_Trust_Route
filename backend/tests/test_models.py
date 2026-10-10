@@ -6,27 +6,7 @@ from api.schemas.delivery import Coordinate, DeliveryStop
 @pytest.fixture(autouse=True)
 def setup_db():
     from database.database import Base, engine
-    from database.models import CrimeData
-    from sqlalchemy.orm import sessionmaker
-    
-    # Create tables on the global engine used by SessionLocal
     Base.metadata.create_all(bind=engine)
-    
-    # Seed a dummy crime data entry if not exists
-    Session = sessionmaker(bind=engine)
-    db = Session()
-    try:
-        if not db.query(CrimeData).first():
-            crime = CrimeData(
-                district="Chennai",
-                location={"latitude": 13.0, "longitude": 80.0},
-                crime_risk_score=20.0,
-                year=2024
-            )
-            db.add(crime)
-            db.commit()
-    finally:
-        db.close()
     yield
 
 @pytest.mark.asyncio

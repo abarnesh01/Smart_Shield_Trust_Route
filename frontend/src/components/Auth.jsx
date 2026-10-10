@@ -173,45 +173,6 @@ const Auth = ({ setAuth }) => {
         }
     };
 
-    const handleDevBypass = async () => {
-        setLoading(true);
-        try {
-            // Map selected role to default credentials from seed
-            const credentialsMap = {
-                admin: { username: 'admin@smartshield.com', password: 'Admin@123' },
-                dispatcher: { username: 'dispatcher@smartshield.com', password: 'Dispatch@123' },
-                rider: { username: 'rider@smartshield.com', password: 'Rider@123' },
-                customer: { username: 'dharunika07@gmail.com', password: 'password123' }
-            };
-
-            const creds = credentialsMap[role] || credentialsMap.rider;
-
-            const payload = {
-                username: creds.username,
-                password: creds.password,
-                role: role
-            };
-
-            const response = await axios.post(`${API_URL}/auth/login`, payload);
-            const loginData = {
-                access_token: response.data.access_token,
-                username: response.data.username,
-                role: response.data.role,
-                user_id: response.data.user_id,
-                full_name: response.data.full_name,
-                email: response.data.email,
-            };
-            setAuth(loginData);
-            const roleRoute = ROLE_ROUTES[response.data.role] || '/rider/dashboard';
-            navigate(roleRoute);
-        } catch (err) {
-            console.error("Dev bypass failed:", err);
-            setGlobalError("Dev bypass failed: " + (err.response?.data?.detail || err.message));
-        } finally {
-            setLoading(false);
-        }
-    };
-
 
     return (
         <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4 py-12 relative overflow-hidden">
@@ -222,15 +183,7 @@ const Auth = ({ setAuth }) => {
             </div>
 
             <div className="max-w-2xl w-full z-10 transition-all transform duration-500">
-                {/* Dev Bypass */}
-                <div className="absolute top-4 right-4 z-50">
-                    <button
-                        onClick={handleDevBypass}
-                        className="text-[10px] text-white/20 hover:text-white/50 bg-white/5 px-2 py-1 rounded transition-all"
-                    >
-                        Skip Login (Dev)
-                    </button>
-                </div>
+
 
                 {/* Header */}
                 <div className="text-center mb-8">

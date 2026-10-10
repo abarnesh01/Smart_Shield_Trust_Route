@@ -1,11 +1,13 @@
-"""Safety endpoints."""
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, status
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict
 from pydantic import BaseModel, Field
 from datetime import datetime
 import sys
 from pathlib import Path
+
+from api.deps import get_current_user, get_current_active_user, get_current_dispatcher
+from database.models import User
 
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
@@ -86,13 +88,16 @@ async def get_safety_heatmap(
 @router.post("/safety/panic-button", response_model=PanicButtonResponse)
 async def trigger_panic_button(
     request: PanicButtonRequest,
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Trigger emergency SOS alert."""
+    """Trigger emergency SOS alert with authenticated user identity."""
     try:
+        # Derive rider identity from authenticated user to prevent spoofing
+        rider_id = current_user.username
         result = await safety_service.trigger_panic_button(
             db=db,
-            rider_id=request.rider_id,
+            rider_id=rider_id,
             location=request.location,
             route_id=request.route_id,
             delivery_id=request.delivery_id,
@@ -107,9 +112,15 @@ async def trigger_panic_button(
 @router.post("/safety/panic-button/resolve")
 async def resolve_panic_button(
     request: PanicButtonResolveRequest,
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Resolve an active emergency SOS alert."""
+    """Resolve an active emergency SOS alert (restricted to admin, dispatcher, or the rider)."""
+    if current_user.role not in ["admin", "super_admin", "dispatcher"] and current_user.username != request.rider_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to resolve this emergency alert"
+        )
     try:
         return safety_service.resolve_panic_button(
             db=db,
@@ -215,7 +226,8 @@ async def get_buddy_status(
 @router.get("/safety/alerts", response_model=List[Dict])
 async def get_safety_alerts(
     limit: int = 50,
+    current_user: User = Depends(get_current_dispatcher),
     db: Session = Depends(get_db)
 ):
-    """Retrieve all safety alerts (Panic/SOS)."""
+    """Retrieve all safety alerts (Panic/SOS) - Dispatcher/Admin only."""
     return safety_service.get_all_panic_alerts(db, limit)

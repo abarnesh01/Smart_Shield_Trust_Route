@@ -126,65 +126,41 @@ async def startup_event():
     asyncio.create_task(periodic_cache_cleanup())
     logger.info("📦 Location cache cleanup task started (runs every 60s)")
 
-    # Seed default developer users for all roles
-    db = SessionLocal()
-    try:
-        users_to_seed = [
-            {
-                "username": "admin@smartshield.com",
-                "email": "admin@smartshield.com",
-                "hashed_password": get_password_hash("Admin@123"),
-                "role": "admin",
-                "full_name": "System Administrator",
-                "status": "active"
-            },
-            {
-                "username": "dispatcher@smartshield.com",
-                "email": "dispatcher@smartshield.com",
-                "hashed_password": get_password_hash("Dispatch@123"),
-                "role": "dispatcher",
-                "full_name": "Emergency Dispatcher",
-                "status": "active"
-            },
-            {
-                "username": "rider@smartshield.com",
-                "email": "rider@smartshield.com",
-                "hashed_password": get_password_hash("Rider@123"),
-                "role": "rider",
-                "full_name": "Smart Rider",
-                "status": "active"
-            },
-            {
-                "username": "dharunika07@gmail.com",
-                "email": "dharunika07@gmail.com",
-                "hashed_password": get_password_hash("password123"),
-                "role": "customer",
-                "full_name": "Dharunika 07",
-                "status": "active"
-            },
-            {
-                "username": "dharunikaktm@gmail.com",
-                "email": "dharunikaktm@gmail.com",
-                "hashed_password": get_password_hash("password123"),
-                "role": "rider",
-                "full_name": "Dharunika K",
-                "status": "active"
-            }
-        ]
-
-        for user_data in users_to_seed:
-            user = db.query(User).filter(User.username == user_data["username"]).first()
-            if not user:
-                logger.info(f"Seeding default user: {user_data['username']} ({user_data['role']})")
-                new_user = User(**user_data)
-                db.add(new_user)
-        
-        db.commit()
-    except Exception as e:
-        logger.error(f"Error seeding database: {e}")
-        db.rollback()
-    finally:
-        db.close()
+    # Safe development bootstrap (only when explicitly requested via environment)
+    bootstrap_dev = (
+        settings.ENVIRONMENT == "development" 
+        and os.getenv("BOOTSTRAP_DEV_USERS", "false").lower() == "true"
+    )
+    if bootstrap_dev:
+        db = SessionLocal()
+        try:
+            dev_configs = [
+                ("DEV_ADMIN_USER", "admin@smartshield.com", "DEV_ADMIN_PASSWORD", "admin", "System Administrator"),
+                ("DEV_DISPATCHER_USER", "dispatcher@smartshield.com", "DEV_DISPATCHER_PASSWORD", "dispatcher", "Emergency Dispatcher"),
+                ("DEV_RIDER_USER", "rider@smartshield.com", "DEV_RIDER_PASSWORD", "rider", "Smart Rider"),
+            ]
+            for user_env, default_user, pwd_env, role, full_name in dev_configs:
+                username = os.getenv(user_env, default_user)
+                raw_pwd = os.getenv(pwd_env)
+                if raw_pwd:
+                    user = db.query(User).filter(User.username == username).first()
+                    if not user:
+                        logger.info(f"Bootstrapping dev user: {username} ({role})")
+                        new_user = User(
+                            username=username,
+                            email=username,
+                            hashed_password=get_password_hash(raw_pwd),
+                            role=role,
+                            full_name=full_name,
+                            status="active"
+                        )
+                        db.add(new_user)
+            db.commit()
+        except Exception as e:
+            logger.error(f"Error bootstrapping dev users: {e}")
+            db.rollback()
+        finally:
+            db.close()
 
 if __name__ == "__main__":
     import uvicorn

@@ -6,8 +6,10 @@ from database.models import User, RiderProfile, DriverProfile, UserSession
 from api.schemas.auth import UserCreate, UserResponse, Token, UserLogin, TokenRefresh
 from api.services.security import get_password_hash, verify_password, create_access_token, create_refresh_token
 from loguru import logger
+import os
 from datetime import datetime, timedelta
 from api.utils.limiter import limiter
+from config.config import settings
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -18,11 +20,13 @@ def register(request: Request, user_in: UserCreate, db: Session = Depends(get_db
     try:
         # 1. Check if registration is allowed for this role publicly
         allowed_public_roles = ["customer", "rider", "driver"]
-        if user_in.role not in allowed_public_roles and not user_in.admin_code:
-             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Registration for role '{user_in.role}' is not allowed publicly."
-            )
+        if user_in.role not in allowed_public_roles:
+            admin_code = settings.ADMIN_REGISTRATION_CODE or os.getenv("ADMIN_REGISTRATION_CODE", "")
+            if not admin_code or user_in.admin_code != admin_code:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Registration for role '{user_in.role}' requires a valid admin registration code."
+                )
 
         # 2. Check if user already exists
         existing_user = db.query(User).filter(User.username == user_in.username).first()
@@ -154,11 +158,12 @@ def login(request: Request, response: Response, user_in: UserLogin, db: Session 
     db.commit()
     
     # Set HttpOnly Cookies
+    cookie_secure = settings.COOKIE_SECURE or (settings.ENVIRONMENT.lower() == "production")
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
-        secure=False, # Set to True in production with HTTPS
+        secure=cookie_secure,
         samesite="lax",
         max_age=60 * 60 * 24 # 24 hours
     )
@@ -166,7 +171,7 @@ def login(request: Request, response: Response, user_in: UserLogin, db: Session 
         key="refresh_token",
         value=refresh_token,
         httponly=True,
-        secure=False, # Set to True in production with HTTPS
+        secure=cookie_secure,
         samesite="lax",
         max_age=60 * 60 * 24 * 7 # 7 days
     )
@@ -206,11 +211,12 @@ def refresh(request: Request, response: Response, token_in: TokenRefresh, db: Se
     access_token = create_access_token(data={"sub": user.username, "role": user.role})
     
     # Update Cookies
+    cookie_secure = settings.COOKIE_SECURE or (settings.ENVIRONMENT.lower() == "production")
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
-        secure=False,
+        secure=cookie_secure,
         samesite="lax",
         max_age=60 * 60 * 24
     )

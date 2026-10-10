@@ -7,6 +7,8 @@ from typing import List
 BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_DB_PATH = BASE_DIR / "smartshield.db"
 
+from pydantic import model_validator
+
 class Settings(BaseSettings):
     """Application settings."""
     
@@ -33,6 +35,28 @@ class Settings(BaseSettings):
     JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "jwt-secret-key-change-me")
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
+    COOKIE_SECURE: bool = os.getenv("COOKIE_SECURE", "False").lower() == "true"
+    ADMIN_REGISTRATION_CODE: str = os.getenv(
+        "ADMIN_REGISTRATION_CODE",
+        "SECRET_TEST" if os.getenv("ENVIRONMENT", "development").lower() != "production" else ""
+    )
+
+    @model_validator(mode="after")
+    def validate_production_secrets(self):
+        insecure_placeholders = {
+            "change-me-in-production",
+            "jwt-secret-key-change-me",
+            "secret",
+            "admin",
+            "123456",
+            "password"
+        }
+        if self.ENVIRONMENT.lower() == "production":
+            if not self.SECRET_KEY or self.SECRET_KEY.strip() in insecure_placeholders:
+                raise ValueError("Insecure or missing SECRET_KEY in production environment")
+            if not self.JWT_SECRET_KEY or self.JWT_SECRET_KEY.strip() in insecure_placeholders:
+                raise ValueError("Insecure or missing JWT_SECRET_KEY in production environment")
+        return self
     
     # CORS
     BACKEND_CORS_ORIGINS: List[str] = [
