@@ -27,7 +27,52 @@ def test_delivery_queue(client):
     response = client.get("/api/v1/dashboard/deliveries/queue")
     assert response.status_code == 200
     assert response.json()["status"] == "success"
-    assert len(response.json()["data"]) > 0
+    assert isinstance(response.json()["data"], list)
+
+    # Insert test delivery and verify it is retrieved
+    from database.database import SessionLocal
+    from database.models import Delivery, Customer
+    import uuid
+
+    db = SessionLocal()
+    cust_id = str(uuid.uuid4())
+    customer = Customer(id=cust_id, name="Test Customer")
+    delivery = Delivery(
+        id=str(uuid.uuid4()),
+        order_id=f"ORD-{uuid.uuid4().hex[:6].upper()}",
+        customer_id=cust_id,
+        pickup_location={"lat": 11.01, "lng": 76.95, "address": "Hub A"},
+        dropoff_location={"lat": 11.02, "lng": 76.96, "address": "Destination B"},
+        status="in_transit",
+        safety_score=92.0,
+        estimated_distance=4.2,
+        estimated_duration=18.0
+    )
+    db.add(customer)
+    db.add(delivery)
+    db.commit()
+
+    try:
+        res = client.get("/api/v1/dashboard/deliveries/queue")
+        assert res.status_code == 200
+        items = res.json()["data"]
+        matching = [item for item in items if item["id"] == delivery.order_id]
+        assert len(matching) == 1
+        assert matching[0]["customer_name"] == "Test Customer"
+        assert matching[0]["address"] == "Destination B"
+        assert matching[0]["safety_score"] == 92
+        assert matching[0]["priority"] == "High"
+    finally:
+        db.delete(delivery)
+        db.delete(customer)
+        db.commit()
+        db.close()
+
+def test_dashboard_route_optimize_empty(client):
+    response = client.post("/api/v1/dashboard/route/optimize", json={"delivery_ids": []})
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+    assert response.json()["data"]["sequence"] == []
 
 def test_zone_safety(client):
     response = client.get("/api/v1/dashboard/zones/safety")

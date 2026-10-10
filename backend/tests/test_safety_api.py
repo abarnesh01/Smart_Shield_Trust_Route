@@ -2,10 +2,10 @@ import pytest
 
 # Test fixtures (client, db_session) are provided by conftest.py
 
-def test_get_safety_heatmap(client, db_session):
-    # Heatmap should work even without auth (public safety info)
+from database.models import PanicAlert
 
-    # Heatmap should work even without auth (public safety info)
+def test_get_safety_heatmap(client, db_session):
+    # 1. Empty DB returns empty points list (no fabricated data)
     response = client.get(
         "/api/v1/safety/heatmap",
         params={
@@ -19,8 +19,33 @@ def test_get_safety_heatmap(client, db_session):
     assert response.status_code == 200
     data = response.json()
     assert "points" in data
-    # CrimeDataService uses hardcoded TN districts if filters don't match or DB is empty
-    assert len(data["points"]) > 0
+    assert len(data["points"]) == 0
+
+    # 2. Real incident in database returns real heatmap point
+    alert = PanicAlert(
+        rider_id="test_rider",
+        location={"latitude": 13.08, "longitude": 80.27},
+        status="active"
+    )
+    db_session.add(alert)
+    db_session.commit()
+
+    response_with_data = client.get(
+        "/api/v1/safety/heatmap",
+        params={
+            "min_lat": 13.0,
+            "min_lng": 80.0,
+            "max_lat": 13.2,
+            "max_lng": 80.3,
+            "grid_size": 5
+        }
+    )
+    assert response_with_data.status_code == 200
+    points = response_with_data.json()["points"]
+    assert len(points) == 1
+    assert points[0]["lat"] == 13.08
+    assert points[0]["lng"] == 80.27
+    assert points[0]["intensity"] == 0.2
 
 def test_panic_button(client):
     # 1. Register and Login to get auth

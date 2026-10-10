@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from api.deps import get_current_user, get_current_active_user, get_current_dispatcher
-from database.models import User
+from database.models import User, PanicAlert, CrowdsourcedAlert, DeliveryFeedback
 
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
@@ -66,19 +66,51 @@ async def get_safety_heatmap(
     min_lng: float, 
     max_lat: float, 
     max_lng: float,
-    grid_size: Optional[int] = 15
+    grid_size: Optional[int] = 15,
+    db: Session = Depends(get_db)
 ):
-    """Get safety heatmap points for a bounding box."""
+    """Get safety heatmap points for a bounding box based on real incident data."""
     try:
-        import random
-        # Create simulated heatmap points based on the bounding box
         points = []
-        for _ in range(grid_size * 2):
-            points.append({
-                "lat": random.uniform(min_lat, max_lat),
-                "lng": random.uniform(min_lng, max_lng),
-                "intensity": random.uniform(0.3, 0.95)
-            })
+        # 1. Panic Alerts
+        alerts = db.query(PanicAlert).all()
+        for alert in alerts:
+            loc = alert.location or {}
+            lat = loc.get("latitude") if isinstance(loc, dict) else None
+            if lat is None and isinstance(loc, dict):
+                lat = loc.get("lat")
+            lng = loc.get("longitude") if isinstance(loc, dict) else None
+            if lng is None and isinstance(loc, dict):
+                lng = loc.get("lng")
+            if lat is not None and lng is not None:
+                if min_lat <= float(lat) <= max_lat and min_lng <= float(lng) <= max_lng:
+                    intensity = 0.2 if alert.status == "active" else (0.35 if alert.status == "acknowledged" else 0.5)
+                    points.append({"lat": float(lat), "lng": float(lng), "intensity": intensity, "type": "panic_alert"})
+
+        # 2. Crowdsourced hazard alerts
+        crowd_alerts = db.query(CrowdsourcedAlert).all()
+        for ca in crowd_alerts:
+            loc = ca.location or {}
+            lat = loc.get("lat") if isinstance(loc, dict) else None
+            lng = loc.get("lng") if isinstance(loc, dict) else None
+            if lat is not None and lng is not None:
+                if min_lat <= float(lat) <= max_lat and min_lng <= float(lng) <= max_lng:
+                    intensity = 0.35 if ca.has_traffic_issues else 0.75
+                    points.append({"lat": float(lat), "lng": float(lng), "intensity": intensity, "type": "crowdsourced_alert"})
+
+        # 3. Delivery feedback unsafe areas
+        feedbacks = db.query(DeliveryFeedback).filter(DeliveryFeedback.unsafe_areas.isnot(None)).all()
+        for fb in feedbacks:
+            unsafe_list = fb.unsafe_areas or []
+            if isinstance(unsafe_list, list):
+                fb_intensity = max(0.1, min(1.0, (fb.safety_rating or 1) / 5.0))
+                for item in unsafe_list:
+                    if isinstance(item, dict):
+                        lat = item.get("latitude") or item.get("lat")
+                        lng = item.get("longitude") or item.get("lng")
+                        if lat is not None and lng is not None and min_lat <= float(lat) <= max_lat and min_lng <= float(lng) <= max_lng:
+                            points.append({"lat": float(lat), "lng": float(lng), "intensity": fb_intensity, "type": "feedback_hazard"})
+
         return {"points": points}
     except Exception as e:
         logger.error(f"Error generating heatmap: {e}")

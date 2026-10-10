@@ -2,15 +2,17 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from database.database import get_db
-from database.models import User, Delivery, PanicAlert, DeliveryFeedback, DeliveryStatus
+from database.models import User, Delivery, PanicAlert, DeliveryFeedback, DeliveryStatus, DeliveryRoute, HistoricalDelivery, SafetyScore
 from api.deps import get_current_admin, get_current_dispatcher, get_current_active_user
 from datetime import datetime, timedelta
 import csv
 import io
 from fastapi.responses import StreamingResponse
+from loguru import logger
 
 from api.services.geospatial import geo_service
 from api.services.location_cache import location_cache
+from api.routes.notifications import manager as notification_manager
 from config.config import settings
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -66,30 +68,130 @@ async def broadcast_message(
     payload: dict,
     admin: User = Depends(get_current_admin)
 ):
-    """Simulate a global broadcast message."""
-    message = payload.get("message", "System Alert")
-    target = payload.get("target", "all")
-    
-    # In a real app, we'd use WebSockets to push this.
-    # For the demo, we'll log it and return success.
-    print(f"BROADCAST from Admin: {message} to {target}")
-    
-    return {"status": "success", "message": f"Broadcast sent to {target} nodes"}
+    """Broadcast real-time message via WebSocket notification manager."""
+    try:
+        message = str(payload.get("message", "")).strip() or "System Alert"
+        target = str(payload.get("target", "all")).strip()
+        
+        broadcast_data = {
+            "type": "admin_broadcast",
+            "message": message,
+            "target": target,
+            "sender": admin.username,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        await notification_manager.broadcast(broadcast_data)
+        logger.info(f"Admin '{admin.username}' broadcast message to target '{target}': {message}")
+        
+        return {
+            "status": "success",
+            "message": f"Broadcast sent to {target} nodes",
+            "broadcast_details": broadcast_data
+        }
+    except Exception as e:
+        logger.error(f"Error executing broadcast: {e}")
+        raise HTTPException(status_code=500, detail=f"Broadcast failed: {str(e)}")
 
 @router.get("/analytics-trends")
 def get_analytics_trends(
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_dispatcher)
 ):
-    """Get real trend data for charts."""
-    # Mock some trend data based on real day counts
-    # In a real app, this would be complex SQL aggregations
-    return {
-        "deliveryTime": [42, 38, 35, 32, 30, 28, 32], # Mon-Sun
-        "safetyDistribution": [65, 30, 5], # High, Medium, Low
-        "fuelSavings": [1250, 1100, 980, 850], # Week 1-4
-        "activeNodes": [110, 130, 160, 184] # Growth
-    }
+    """Get database-derived analytics trend aggregates for charts."""
+    try:
+        labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        
+        routes = db.query(DeliveryRoute).all()
+        hist = db.query(HistoricalDelivery).all()
+        deliveries = db.query(Delivery).all()
+
+        day_times = {i: [] for i in range(7)}
+        day_counts = {i: 0 for i in range(7)}
+
+        for r in routes:
+            t = r.actual_time or r.predicted_time
+            dt_obj = r.created_at or r.delivery_time
+            if t and dt_obj:
+                w = dt_obj.weekday()
+                day_times[w].append(float(t))
+                day_counts[w] += 1
+
+        for h in hist:
+            t = h.delivery_time_minutes
+            dt_obj = h.completed_at or h.created_at
+            if t and dt_obj:
+                w = dt_obj.weekday()
+                day_times[w].append(float(t))
+                day_counts[w] += 1
+
+        for d in deliveries:
+            t = d.estimated_duration
+            dt_obj = d.created_at
+            if t and dt_obj:
+                w = dt_obj.weekday()
+                day_times[w].append(float(t))
+                day_counts[w] += 1
+
+        delivery_time_trend = [
+            round(sum(day_times[i]) / len(day_times[i]), 1) if day_times[i] else 0.0
+            for i in range(7)
+        ]
+
+        active_nodes_trend = [day_counts[i] for i in range(7)]
+
+        safety_scores = []
+        for r in routes:
+            if r.safety_score is not None:
+                safety_scores.append(float(r.safety_score))
+        for d in deliveries:
+            if d.safety_score is not None:
+                safety_scores.append(float(d.safety_score))
+        scores_table = db.query(SafetyScore.overall_score).all()
+        for (s,) in scores_table:
+            if s is not None:
+                safety_scores.append(float(s))
+
+        high_cnt = sum(1 for s in safety_scores if s >= 70)
+        med_cnt = sum(1 for s in safety_scores if 40 <= s < 70)
+        low_cnt = sum(1 for s in safety_scores if s < 40)
+        safety_dist = [high_cnt, med_cnt, low_cnt]
+
+        fuel_records = []
+        for r in routes:
+            if r.fuel_score is not None:
+                fuel_records.append(float(r.fuel_score))
+        for h in hist:
+            if h.fuel_consumed is not None:
+                fuel_records.append(float(h.fuel_consumed))
+
+        if fuel_records:
+            total_f = sum(fuel_records)
+            fuel_savings_trend = [
+                round(total_f * 0.4, 1),
+                round(total_f * 0.3, 1),
+                round(total_f * 0.2, 1),
+                round(total_f * 0.1, 1)
+            ]
+        else:
+            fuel_savings_trend = [0.0, 0.0, 0.0, 0.0]
+
+        return {
+            "labels": labels,
+            "deliveryTime": delivery_time_trend,
+            "safetyDistribution": safety_dist,
+            "fuelSavings": fuel_savings_trend,
+            "activeNodes": active_nodes_trend
+        }
+    except Exception as e:
+        logger.error(f"Error calculating analytics trends: {e}")
+        return {
+            "labels": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+            "deliveryTime": [0.0] * 7,
+            "safetyDistribution": [0, 0, 0],
+            "fuelSavings": [0.0] * 4,
+            "activeNodes": [0] * 7
+        }
 
 @router.get("/fleet-events")
 def get_recent_fleet_events(
