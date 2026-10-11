@@ -37,7 +37,11 @@ target_metadata = Base.metadata
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
-    url = config.get_main_option("sqlalchemy.url") or settings.DATABASE_URL
+    cli_url = config.get_main_option("sqlalchemy.url")
+    if cli_url and not cli_url.startswith("driver://"):
+        url = cli_url
+    else:
+        url = os.getenv("DATABASE_URL") or settings.DATABASE_URL
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql://", 1)
         
@@ -54,7 +58,11 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
-    url = config.get_main_option("sqlalchemy.url") or settings.DATABASE_URL
+    cli_url = config.get_main_option("sqlalchemy.url")
+    if cli_url and not cli_url.startswith("driver://"):
+        url = cli_url
+    else:
+        url = os.getenv("DATABASE_URL") or settings.DATABASE_URL
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql://", 1)
         
