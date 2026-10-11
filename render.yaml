@@ -77,12 +77,12 @@ services:
         sync: false
 
   # ─── React Static Frontend ──────────────────────────────────────────────────
-  - type: static
+  - type: web
     name: smart-shield-app
     runtime: static
     rootDir: frontend
     buildCommand: npm ci && npm run build
-    publishDir: build
+    staticPublishPath: ./build
     headers:
       - path: /*
         name: X-Frame-Options
