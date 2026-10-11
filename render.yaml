@@ -1,19 +1,19 @@
 services:
-  # ─── FastAPI Backend ────────────────────────────────────────────────────────
+  # ─── FastAPI Backend (Render Free Web Service) ──────────────────────────────
   - type: web
     name: smart-shield-api
     runtime: python
-    plan: starter          # change to standard for production workloads
+    plan: free             # ₹0-budget public demo tier (512MB RAM, spins down on idle)
     rootDir: backend
     buildCommand: pip install -r requirements.txt
     startCommand: alembic upgrade head && gunicorn api.main:app -w 2 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --timeout 120 --keep-alive 5
     healthCheckPath: /api/v1/system/health
     envVars:
-      # ── Database (injected from managed DB below) ───────────────────────────
+      # ── Database (External Supabase Free PostgreSQL) ────────────────────────
+      # Supply your Supabase connection string in Render Dashboard → Environment:
+      # postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:5432/postgres
       - key: DATABASE_URL
-        fromDatabase:
-          name: smart-shield-db
-          property: connectionString   # Render injects postgresql://... URL
+        sync: false
 
       # ── Runtime Environment ─────────────────────────────────────────────────
       - key: ENVIRONMENT
@@ -40,7 +40,7 @@ services:
         value: "True"        # HTTPS only in staging/production
 
       # ── CORS: restrict to exact frontend origin ─────────────────────────────
-      # Update with your custom staging domain if different from onrender.com
+      # Matches Render static site default URL: smart-shield-app.onrender.com
       - key: BACKEND_CORS_ORIGINS
         value: '["https://smart-shield-app.onrender.com"]'
 
@@ -76,7 +76,7 @@ services:
       - key: SENTRY_DSN
         sync: false
 
-  # ─── React Static Frontend ──────────────────────────────────────────────────
+  # ─── React Static Frontend (Render Free Static Site) ────────────────────────
   - type: web
     name: smart-shield-app
     runtime: static
@@ -104,11 +104,3 @@ services:
       # Public hostname for WebSocket connection (used by notification service)
       - key: REACT_APP_WS_HOST
         value: smart-shield-api.onrender.com
-
-# ─── Managed PostgreSQL ──────────────────────────────────────────────────────
-databases:
-  - name: smart-shield-db
-    plan: starter            # change to standard for prod
-    postgresMajorVersion: 15
-    databaseName: smartshield
-    user: smartshield
