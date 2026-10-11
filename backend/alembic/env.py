@@ -6,6 +6,7 @@ from sqlalchemy import pool
 from alembic import context
 
 import sys
+import os
 from pathlib import Path
 
 # Add backend directory to path
