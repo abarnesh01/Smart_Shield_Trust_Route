@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMapEvents, useMap, Tooltip } from 'react-leaflet';
 import L from 'leaflet';
 import { api } from '../services/api';
@@ -9,6 +9,9 @@ import useLocation from '../hooks/useLocation';
 import SafetyHeatmap from './SafetyHeatmap';
 
 import { API_ROOT_URL as API_BASE } from '../utils/constants';
+
+let nominatimRequestQueue = Promise.resolve();
+let lastNominatimRequestAt = 0;
 
 const MapUpdater = ({ center }) => {
   const map = useMap();
@@ -85,6 +88,10 @@ const RouteMap = ({ variant = 'default', route, markers, center, zoom, onMarkerC
   const [destQuery, setDestQuery] = useState('');
   const [searching, setSearching] = useState(null); // 'start' or 'destination' or null
   const [results, setResults] = useState([]);
+  const [resultsFor, setResultsFor] = useState(null);
+  const [searchError, setSearchError] = useState(null);
+  const searchRequestIdRef = useRef(0);
+  const searchAbortRef = useRef(null);
   const [showTraffic, setShowTraffic] = useState(false);
   const [showWeather, setShowWeather] = useState(false);
   const [safetyOverlay, setSafetyOverlay] = useState(null);
@@ -194,29 +201,92 @@ const RouteMap = ({ variant = 'default', route, markers, center, zoom, onMarkerC
     }
   };
 
-  // Search via Nominatim
+  // Keep requests from all RouteMap instances in this page at least one second apart.
+  const requestNominatim = (url, signal) => {
+    const request = nominatimRequestQueue.then(async () => {
+      const delay = Math.max(0, 1000 - (Date.now() - lastNominatimRequestAt));
+      if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+      if (signal?.aborted) {
+        const abortError = new Error('Nominatim request was cancelled');
+        abortError.name = 'AbortError';
+        throw abortError;
+      }
+
+      lastNominatimRequestAt = Date.now();
+      const response = await fetch(url, {
+        headers: { Accept: 'application/json' },
+        signal
+      });
+      if (!response.ok) {
+        throw new Error(`Nominatim request failed (HTTP ${response.status})`);
+      }
+      return response.json();
+    });
+    nominatimRequestQueue = request.catch(() => {});
+    return request;
+  };
+
+  const clearPlaceSearch = () => {
+    searchAbortRef.current?.abort();
+    searchRequestIdRef.current += 1;
+    setSearching(null);
+    setResults([]);
+    setResultsFor(null);
+    setSearchError(null);
+  };
+
+  // Search only after an explicit Enter key or button activation, not while typing.
   const searchPlaces = async (text, type) => {
-    if (!text || text.length < 3) { setResults([]); return; }
+    searchAbortRef.current?.abort();
+    searchAbortRef.current = null;
+    const requestId = ++searchRequestIdRef.current;
+    const query = text.trim();
+    setResults([]);
+    setResultsFor(type);
+    setSearchError(null);
+
+    if (query.length < 3) {
+      setSearching(null);
+      setResultsFor(null);
+      return;
+    }
+
     setSearching(type);
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
     try {
-      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(text)}`;
-      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-      const data = await res.json();
-      setResults(data.slice(0, 5));
-    } catch (e) {
-      // ignore
+      const params = new URLSearchParams({ format: 'jsonv2', limit: '5', q: query });
+      const data = await requestNominatim(`https://nominatim.openstreetmap.org/search?${params}`, controller.signal);
+      if (requestId !== searchRequestIdRef.current) return;
+      const validResults = Array.isArray(data)
+        ? data.filter(place => place?.display_name && Number.isFinite(Number(place.lat)) && Number.isFinite(Number(place.lon)))
+        : [];
+      setResults(validResults);
+    } catch (error) {
+      if (error.name !== 'AbortError' && requestId === searchRequestIdRef.current) {
+        const httpStatus = error.message.match(/HTTP (\d+)/)?.[1];
+        setSearchError(httpStatus
+          ? `Location search failed (HTTP ${httpStatus}). Please try again.`
+          : 'Could not reach location search. Check your connection and try again.');
+        setResults([]);
+      }
     } finally {
-      // Small delay to allow click to register before results disappear if needed,
-      // but usually not needed with React state.
+      if (requestId === searchRequestIdRef.current) {
+        setSearching(null);
+        searchAbortRef.current = null;
+      }
     }
   };
+
+  useEffect(() => () => {
+    searchAbortRef.current?.abort();
+  }, []);
 
   const reverseGeocode = async (lat, lon) => {
     try {
       const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`;
-      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-      const data = await res.json();
-      return data.display_name;
+      const data = await requestNominatim(url);
+      return data.display_name || `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
     } catch (e) {
       return `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
     }
@@ -640,6 +710,7 @@ const RouteMap = ({ variant = 'default', route, markers, center, zoom, onMarkerC
     useMapEvents({
       async click(e) {
         const coords = [e.latlng.lat, e.latlng.lng];
+        clearPlaceSearch();
         if (selectionMode === 'start') {
           console.log('Start point selected from map click:', coords);
           setCurrentPos(coords);
@@ -765,9 +836,15 @@ const RouteMap = ({ variant = 'default', route, markers, center, zoom, onMarkerC
                     value={startQuery}
                     onChange={(e) => {
                       setStartQuery(e.target.value);
-                      searchPlaces(e.target.value, 'start');
+                      clearPlaceSearch();
                     }}
-                    placeholder="Search start or click on map"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        searchPlaces(startQuery, 'start');
+                      }
+                    }}
+                    placeholder="Type start location and press Enter"
                     className={`w-full border rounded-md px-3 py-2 text-sm ${selectionMode === 'start' ? 'border-primary-500 ring-1 ring-primary-200' : 'border-gray-300'}`}
                     onFocus={() => setSelectionMode('start')}
                   />
@@ -786,8 +863,22 @@ const RouteMap = ({ variant = 'default', route, markers, center, zoom, onMarkerC
                     </button>
                   )}
                 </div>
+                <div className="mt-1 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => searchPlaces(startQuery, 'start')}
+                    disabled={searching !== null || startQuery.trim().length < 3}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <FiSearch className="w-3 h-3" /> Search
+                  </button>
+                </div>
                 {searching === 'start' && <div className="text-xs text-gray-500 mt-1">Searching...</div>}
-                {searching === 'start' && !!results.length && (
+                {searchError && resultsFor === 'start' && <div className="text-xs text-red-600 mt-1">{searchError}</div>}
+                {resultsFor === 'start' && !searching && !searchError && !results.length && startQuery.trim().length >= 3 && (
+                  <div className="text-xs text-gray-500 mt-1">No locations found.</div>
+                )}
+                {resultsFor === 'start' && !!results.length && (
                   <div className="mt-2 border border-gray-200 rounded-md max-h-40 overflow-auto bg-white z-[1002] relative">
                     {results.map((r) => (
                       <button
@@ -795,10 +886,9 @@ const RouteMap = ({ variant = 'default', route, markers, center, zoom, onMarkerC
                         className="block w-full text-left px-3 py-2 text-sm hover:bg-gray-50 transition-colors"
                         onClick={() => {
                           const newStart = [parseFloat(r.lat), parseFloat(r.lon)];
+                          clearPlaceSearch();
                           setCurrentPos(newStart);
                           setStartQuery(r.display_name);
-                          setResults([]);
-                          setSearching(null);
                           setSelectionMode('destination');
                         }}
                       >
@@ -816,14 +906,34 @@ const RouteMap = ({ variant = 'default', route, markers, center, zoom, onMarkerC
                   value={destQuery}
                   onChange={(e) => {
                     setDestQuery(e.target.value);
-                    searchPlaces(e.target.value, 'destination');
+                    clearPlaceSearch();
                   }}
-                  placeholder="Search destination or click on map"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      searchPlaces(destQuery, 'destination');
+                    }
+                  }}
+                  placeholder="Type destination and press Enter"
                   className={`w-full border rounded-md px-3 py-2 text-sm ${selectionMode === 'destination' ? 'border-primary-500 ring-1 ring-primary-200' : 'border-gray-300'}`}
                   onFocus={() => setSelectionMode('destination')}
                 />
+                <div className="mt-1 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => searchPlaces(destQuery, 'destination')}
+                    disabled={searching !== null || destQuery.trim().length < 3}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <FiSearch className="w-3 h-3" /> Search
+                  </button>
+                </div>
                 {searching === 'destination' && <div className="text-xs text-gray-500 mt-1">Searching...</div>}
-                {searching === 'destination' && !!results.length && (
+                {searchError && resultsFor === 'destination' && <div className="text-xs text-red-600 mt-1">{searchError}</div>}
+                {resultsFor === 'destination' && !searching && !searchError && !results.length && destQuery.trim().length >= 3 && (
+                  <div className="text-xs text-gray-500 mt-1">No locations found.</div>
+                )}
+                {resultsFor === 'destination' && !!results.length && (
                   <div className="mt-2 border border-gray-200 rounded-md max-h-40 overflow-auto bg-white z-[1002] relative">
                     {results.map((r) => (
                       <button
@@ -831,10 +941,9 @@ const RouteMap = ({ variant = 'default', route, markers, center, zoom, onMarkerC
                         className="block w-full text-left px-3 py-2 text-sm hover:bg-gray-50 transition-colors"
                         onClick={() => {
                           const newDest = [parseFloat(r.lat), parseFloat(r.lon)];
+                          clearPlaceSearch();
                           setDestPos(newDest);
                           setDestQuery(r.display_name);
-                          setResults([]);
-                          setSearching(null);
                         }}
                       >
                         {r.display_name}
@@ -1691,4 +1800,3 @@ const RouteMap = ({ variant = 'default', route, markers, center, zoom, onMarkerC
 };
 
 export default RouteMap;
-
