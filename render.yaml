@@ -9,6 +9,10 @@ services:
     startCommand: alembic upgrade head && gunicorn api.main:app -w 1 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --timeout 120 --keep-alive 5
     healthCheckPath: /api/v1/system/health
     envVars:
+      # ── Python Runtime Version (matches backend/Dockerfile python:3.10-slim) ──
+      - key: PYTHON_VERSION
+        value: 3.10.16
+
       # ── Database (External Supabase Free PostgreSQL) ────────────────────────
       # Supply your Supabase connection string in Render Dashboard → Environment:
       # postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:5432/postgres
