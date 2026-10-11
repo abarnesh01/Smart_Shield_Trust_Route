@@ -94,3 +94,10 @@ temp/
 *.bak
 *.backup
 
+
+# Staging/Production env files with real or near-real secrets
+backend/.env.staging
+backend/.env.production
+.env.prod
+.env.production
+.env.staging

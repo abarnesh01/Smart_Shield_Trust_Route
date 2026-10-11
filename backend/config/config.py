@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     COOKIE_SECURE: bool = os.getenv("COOKIE_SECURE", "False").lower() == "true"
     ADMIN_REGISTRATION_CODE: str = os.getenv(
         "ADMIN_REGISTRATION_CODE",
-        "SECRET_TEST" if os.getenv("ENVIRONMENT", "development").lower() != "production" else ""
+        "" if os.getenv("ENVIRONMENT", "development").lower() in ["production", "staging"] else "SECRET_TEST"
     )
 
     @model_validator(mode="after")
@@ -49,13 +49,15 @@ class Settings(BaseSettings):
             "secret",
             "admin",
             "123456",
-            "password"
+            "password",
+            "staging_secret_key_change_me",
+            "staging_jwt_secret_key_change_me"
         }
-        if self.ENVIRONMENT.lower() == "production":
+        if self.ENVIRONMENT.lower() in ["production", "staging"]:
             if not self.SECRET_KEY or self.SECRET_KEY.strip() in insecure_placeholders:
-                raise ValueError("Insecure or missing SECRET_KEY in production environment")
+                raise ValueError("Insecure or missing SECRET_KEY in production/staging environment")
             if not self.JWT_SECRET_KEY or self.JWT_SECRET_KEY.strip() in insecure_placeholders:
-                raise ValueError("Insecure or missing JWT_SECRET_KEY in production environment")
+                raise ValueError("Insecure or missing JWT_SECRET_KEY in production/staging environment")
         return self
     
     # CORS

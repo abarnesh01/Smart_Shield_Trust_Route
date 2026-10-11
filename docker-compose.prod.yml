@@ -1,17 +1,25 @@
 version: '3.8'
 
+# docker-compose.prod.yml — Local production-equivalent stack
+# ─────────────────────────────────────────────────────────────
+# Usage:
+#   1. Copy .env.example to .env.prod and fill in required values
+#   2. Run: docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+#
+# ⚠️  NEVER commit .env.prod or hardcode secrets in this file.
+
 services:
   db:
     image: postgres:15-alpine
-    restart: always
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: smartshield
-      POSTGRES_PASSWORD: password123
-      POSTGRES_DB: smartshield
+      POSTGRES_USER: ${POSTGRES_USER:-smartshield}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:-smartshield}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U smartshield -d smartshield" ]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-smartshield} -d ${POSTGRES_DB:-smartshield}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -19,27 +27,44 @@ services:
   backend:
     build:
       context: ./backend
-    restart: always
+      dockerfile: Dockerfile
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
     environment:
-      - DATABASE_URL=postgresql+psycopg2://smartshield:password123@db:5432/smartshield
-      - JWT_SECRET_KEY=change-this-in-production
+      - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-smartshield}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/${POSTGRES_DB:-smartshield}
       - ENVIRONMENT=production
       - DEBUG=False
-      - ALLOWED_ORIGINS=*
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY must be set}
+      - ADMIN_REGISTRATION_CODE=${ADMIN_REGISTRATION_CODE:?ADMIN_REGISTRATION_CODE must be set}
+      - COOKIE_SECURE=False  # Set to True if terminating TLS upstream
+      - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS:-["http://localhost","http://localhost:80","http://127.0.0.1","http://127.0.0.1:80"]}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - BOOTSTRAP_DEV_USERS=false
+      # Optional external services
+      - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY:-}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID:-}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN:-}
+      - TWILIO_PHONE_NUMBER=${TWILIO_PHONE_NUMBER:-}
+      - EMERGENCY_PHONE=${EMERGENCY_PHONE:-}
+      - SMTP_USERNAME=${SMTP_USERNAME:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - EMERGENCY_EMAIL=${EMERGENCY_EMAIL:-}
+      - SENTRY_DSN=${SENTRY_DSN:-}
     ports:
       - "8000:8000"
 
   frontend:
     build:
       context: ./frontend
-    restart: always
+      dockerfile: Dockerfile
+    restart: unless-stopped
     depends_on:
       - backend
     environment:
-      - REACT_APP_API_URL=http://localhost:8000/api/v1
+      - REACT_APP_API_URL=${REACT_APP_API_URL:-http://localhost:8000/api/v1}
     ports:
       - "80:80"
 
